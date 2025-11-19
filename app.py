@@ -56,25 +56,36 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     .metric-card {
-        background-color: #F8FAFC;
+        background-color: #1F2937;
         padding: 1.5rem;
         border-radius: 0.5rem;
-        border: 2px solid #E2E8F0;
+        border: 2px solid #374151;
         margin: 0.5rem 0;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        color: white;
     }
     .detection-box {
-        background-color: #FFFFFF;
+        background-color: #1F2937;
         padding: 1rem;
         border-radius: 0.5rem;
-        border: 1px solid #E2E8F0;
+        border: 1px solid #374151;
         margin: 0.5rem 0;
+        color: white;
+    }
+    .detection-detail-box {
+        background-color: #1F2937;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        border: 1px solid #374151;
+        margin: 0.5rem 0;
+        color: white;
     }
     .sidebar-section {
-        background-color: #F1F5F9;
+        background-color: #1F2937;
         padding: 1rem;
         border-radius: 0.5rem;
         margin: 0.5rem 0;
+        color: white;
     }
     .stButton button {
         width: 100%;
@@ -115,7 +126,7 @@ st.markdown("""
     }
     .panel-section {
         background-color: #1F2937;
-        padding: 1rem;
+        padding: 1.5rem;
         border-radius: 0.5rem;
         margin: 0.5rem 0;
         color: white;
@@ -125,6 +136,27 @@ st.markdown("""
         padding: 1.5rem;
         border-radius: 0.5rem;
         margin: 1rem 0;
+        color: white;
+    }
+    .detections-section {
+        background-color: #1F2937;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+        color: white;
+    }
+    .expert-analysis-section {
+        background-color: #1F2937;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+        color: white;
+    }
+    .stats-section {
+        background-color: #1F2937;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
         color: white;
     }
 </style>
@@ -645,6 +677,7 @@ with col1:
                 
                 # Mostrar información de detecciones
                 st.markdown("---")
+                st.markdown('<div class="detections-section">', unsafe_allow_html=True)
                 st.subheader("🔍 Detecciones Realizadas")
                 
                 if detections:
@@ -663,7 +696,7 @@ with col1:
                         for i, det in enumerate(detections, 1):
                             if det['confidence'] >= confidence_threshold:
                                 st.markdown(f"""
-                                <div class="detection-box">
+                                <div class="detection-detail-box">
                                     <strong>Detección #{i}</strong><br>
                                     🏷️ Clase: {det['class']}<br>
                                     📊 Confianza: {det['confidence']:.2%}<br>
@@ -672,9 +705,11 @@ with col1:
                                 """, unsafe_allow_html=True)
                 else:
                     st.info("ℹ️ No se detectaron objetos con la confianza mínima establecida")
+                st.markdown('</div>', unsafe_allow_html=True)
                 
                 # Mostrar análisis del sistema experto
                 st.markdown("---")
+                st.markdown('<div class="expert-analysis-section">', unsafe_allow_html=True)
                 st.subheader("🧠 Análisis del Sistema Experto")
                 
                 alert_level = analysis['alert_level']
@@ -714,6 +749,7 @@ with col1:
                         <p>📊 <strong>Cumplimiento EPP:</strong> {analysis['compliance_rate']:.1f}%</p>
                     </div>
                     """, unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
     
     else:
         st.info("👆 **Sube una imagen para comenzar el análisis de seguridad**")
@@ -728,6 +764,7 @@ with col1:
         """, unsafe_allow_html=True)
 
 with col2:
+    st.markdown('<div class="panel-section">', unsafe_allow_html=True)
     st.subheader("📊 Panel de Control")
     
     # Mostrar estadísticas actuales
@@ -739,7 +776,7 @@ with col2:
         compliance = 0
     
     # Métricas principales
-    st.markdown('<div class="panel-section">', unsafe_allow_html=True)
+    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
     st.metric("👥 Trabajadores Detectados", stats['persons'])
     st.metric("🪖 Cascos Detectados", stats['helmets'])
     st.metric("🦺 Chalecos Detectados", stats['vests'])
@@ -784,11 +821,13 @@ with col2:
         if st.button("🗑️ Limpiar Historial"):
             st.session_state.analysis_history = []
             st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =============================================
 # ESTADÍSTICAS GLOBALES
 # =============================================
 st.markdown("---")
+st.markdown('<div class="stats-section">', unsafe_allow_html=True)
 st.subheader("📈 Estadísticas de la Sesión")
 
 col3, col4, col5, col6 = st.columns(4)
@@ -805,6 +844,7 @@ with col5:
     st.metric("👥 Promedio Trabajadores", f"{avg_compliance:.1f}")
 with col6:
     st.metric("🤖 Modelo Activo", "YOLO v8" if model else "N/A")
+st.markdown('</div>', unsafe_allow_html=True)
 
 # =============================================
 # FOOTER E INFORMACIÓN
