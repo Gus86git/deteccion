@@ -32,28 +32,31 @@ st.markdown("""
         font-weight: bold;
     }
     .alert-high {
-        background-color: #FEE2E2;
+        background-color: #1F2937;
         padding: 1.5rem;
         border-radius: 0.5rem;
         border-left: 6px solid #DC2626;
         margin: 1rem 0;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        color: white;
     }
     .alert-medium {
-        background-color: #FEF3C7;
+        background-color: #1F2937;
         padding: 1.5rem;
         border-radius: 0.5rem;
         border-left: 6px solid #D97706;
         margin: 1rem 0;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        color: white;
     }
     .alert-ok {
-        background-color: #D1FAE5;
+        background-color: #1F2937;
         padding: 1.5rem;
         border-radius: 0.5rem;
         border-left: 6px solid #059669;
         margin: 1rem 0;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        color: white;
     }
     .metric-card {
         background-color: #1F2937;
@@ -147,10 +150,11 @@ st.markdown("""
     }
     .expert-analysis-section {
         background-color: #1F2937;
-        padding: 1.5rem;
+        padding: 2rem;
         border-radius: 0.5rem;
         margin: 1rem 0;
         color: white;
+        border: 2px solid #374151;
     }
     .stats-section {
         background-color: #1F2937;
@@ -158,6 +162,42 @@ st.markdown("""
         border-radius: 0.5rem;
         margin: 0.5rem 0;
         color: white;
+    }
+    .alert-title {
+        color: white;
+        font-size: 1.5rem;
+        font-weight: bold;
+        margin-bottom: 1rem;
+    }
+    .alert-message {
+        color: white;
+        font-size: 1.2rem;
+        margin-bottom: 1rem;
+        background-color: #374151;
+        padding: 1rem;
+        border-radius: 0.5rem;
+    }
+    .alert-action {
+        color: white;
+        background-color: #4B5563;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+    }
+    .alert-priority {
+        color: white;
+        background-color: #6B7280;
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        display: inline-block;
+        margin-right: 1rem;
+    }
+    .alert-compliance {
+        color: white;
+        background-color: #6B7280;
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        display: inline-block;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -717,36 +757,66 @@ with col1:
                 if alert_level == "ALTA":
                     st.markdown(f"""
                     <div class="alert-high">
-                        <h3>🚨 ALERTA CRÍTICA DE SEGURIDAD</h3>
-                        <p style="font-size: 1.1rem;"><strong>{analysis['alert_message']}</strong></p>
-                        <hr style="margin: 1rem 0; border-color: #DC2626;">
-                        <p>📋 <strong>Acción Recomendada:</strong><br>{analysis['recommended_action']}</p>
-                        <p>⏰ <strong>Prioridad:</strong> Resolución Inmediata</p>
-                        <p>📊 <strong>Cumplimiento EPP:</strong> {analysis['compliance_rate']:.1f}%</p>
+                        <div class="alert-title">🚨 ALERTA CRÍTICA DE SEGURIDAD</div>
+                        <div class="alert-message">
+                            <strong>{analysis['alert_message']}</strong>
+                        </div>
+                        <div class="alert-action">
+                            <strong>📋 Acción Recomendada:</strong><br>
+                            {analysis['recommended_action']}
+                        </div>
+                        <div>
+                            <span class="alert-priority">
+                                <strong>⏰ Prioridad:</strong> Resolución Inmediata
+                            </span>
+                            <span class="alert-compliance">
+                                <strong>📊 Cumplimiento EPP:</strong> {analysis['compliance_rate']:.1f}%
+                            </span>
+                        </div>
                     </div>
                     """, unsafe_allow_html=True)
                     
                 elif alert_level == "MEDIA":
                     st.markdown(f"""
                     <div class="alert-medium">
-                        <h3>⚠️ ALERTA DE SEGURIDAD</h3>
-                        <p style="font-size: 1.1rem;"><strong>{analysis['alert_message']}</strong></p>
-                        <hr style="margin: 1rem 0; border-color: #D97706;">
-                        <p>📋 <strong>Acción Recomendada:</strong><br>{analysis['recommended_action']}</p>
-                        <p>⏰ <strong>Prioridad:</strong> Resolución en 1 hora</p>
-                        <p>📊 <strong>Cumplimiento EPP:</strong> {analysis['compliance_rate']:.1f}%</p>
+                        <div class="alert-title">⚠️ ALERTA DE SEGURIDAD</div>
+                        <div class="alert-message">
+                            <strong>{analysis['alert_message']}</strong>
+                        </div>
+                        <div class="alert-action">
+                            <strong>📋 Acción Recomendada:</strong><br>
+                            {analysis['recommended_action']}
+                        </div>
+                        <div>
+                            <span class="alert-priority">
+                                <strong>⏰ Prioridad:</strong> Resolución en 1 hora
+                            </span>
+                            <span class="alert-compliance">
+                                <strong>📊 Cumplimiento EPP:</strong> {analysis['compliance_rate']:.1f}%
+                            </span>
+                        </div>
                     </div>
                     """, unsafe_allow_html=True)
                     
                 else:
                     st.markdown(f"""
                     <div class="alert-ok">
-                        <h3>✅ CONDICIONES SEGURAS</h3>
-                        <p style="font-size: 1.1rem;"><strong>{analysis['alert_message']}</strong></p>
-                        <hr style="margin: 1rem 0; border-color: #059669;">
-                        <p>📋 <strong>Acción Recomendada:</strong><br>{analysis['recommended_action']}</p>
-                        <p>⏰ <strong>Estado:</strong> Operaciones Normales</p>
-                        <p>📊 <strong>Cumplimiento EPP:</strong> {analysis['compliance_rate']:.1f}%</p>
+                        <div class="alert-title">✅ CONDICIONES SEGURAS</div>
+                        <div class="alert-message">
+                            <strong>{analysis['alert_message']}</strong>
+                        </div>
+                        <div class="alert-action">
+                            <strong>📋 Acción Recomendada:</strong><br>
+                            {analysis['recommended_action']}
+                        </div>
+                        <div>
+                            <span class="alert-priority">
+                                <strong>⏰ Estado:</strong> Operaciones Normales
+                            </span>
+                            <span class="alert-compliance">
+                                <strong>📊 Cumplimiento EPP:</strong> {analysis['compliance_rate']:.1f}%
+                            </span>
+                        </div>
                     </div>
                     """, unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
