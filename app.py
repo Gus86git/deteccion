@@ -91,11 +91,41 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     .info-box {
-        background-color: #EFF6FF;
-        padding: 1rem;
+        background-color: #1E3A8A;
+        padding: 1.5rem;
         border-radius: 0.5rem;
         border-left: 4px solid #3B82F6;
         margin: 1rem 0;
+        color: white;
+    }
+    .historial-box {
+        background-color: #1F2937;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border: 1px solid #374151;
+        margin: 0.5rem 0;
+        color: white;
+    }
+    .config-section {
+        background-color: #1F2937;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+        color: white;
+    }
+    .panel-section {
+        background-color: #1F2937;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+        color: white;
+    }
+    .analysis-section {
+        background-color: #1F2937;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+        color: white;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -384,103 +414,6 @@ def enhance_ppe_detection(image, detections):
     
     return enhanced
 
-def detect_helmet_by_color(region):
-    """
-    Detecta cascos basándose en colores característicos
-    Cascos comunes: blanco, amarillo, naranja, rojo, azul
-    """
-    try:
-        if region.size == 0:
-            return False
-        
-        # Convertir a HSV para mejor detección de colores
-        hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
-        
-        # Definir rangos de colores para cascos
-        # Amarillo
-        lower_yellow = np.array([20, 100, 100])
-        upper_yellow = np.array([30, 255, 255])
-        
-        # Naranja
-        lower_orange = np.array([5, 100, 100])
-        upper_orange = np.array([15, 255, 255])
-        
-        # Rojo (dos rangos)
-        lower_red1 = np.array([0, 100, 100])
-        upper_red1 = np.array([10, 255, 255])
-        lower_red2 = np.array([160, 100, 100])
-        upper_red2 = np.array([180, 255, 255])
-        
-        # Azul
-        lower_blue = np.array([100, 100, 100])
-        upper_blue = np.array([130, 255, 255])
-        
-        # Blanco (alta luminosidad)
-        lower_white = np.array([0, 0, 200])
-        upper_white = np.array([180, 30, 255])
-        
-        # Crear máscaras
-        mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
-        mask_orange = cv2.inRange(hsv, lower_orange, upper_orange)
-        mask_red = cv2.inRange(hsv, lower_red1, upper_red1) | cv2.inRange(hsv, lower_red2, upper_red2)
-        mask_blue = cv2.inRange(hsv, lower_blue, upper_blue)
-        mask_white = cv2.inRange(hsv, lower_white, upper_white)
-        
-        # Combinar máscaras
-        combined_mask = mask_yellow | mask_orange | mask_red | mask_blue | mask_white
-        
-        # Calcular porcentaje de píxeles que coinciden
-        total_pixels = region.shape[0] * region.shape[1]
-        colored_pixels = np.count_nonzero(combined_mask)
-        percentage = colored_pixels / total_pixels
-        
-        # Si más del 15% de la región tiene estos colores, probablemente es un casco
-        return percentage > 0.15
-    except:
-        return False
-
-def detect_vest_by_color(region):
-    """
-    Detecta chalecos reflectantes basándose en colores característicos
-    Chalecos: amarillo fluorescente, naranja fluorescente, verde lima
-    """
-    try:
-        if region.size == 0:
-            return False
-        
-        # Convertir a HSV
-        hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
-        
-        # Amarillo fluorescente (muy común en chalecos)
-        lower_yellow = np.array([20, 100, 150])
-        upper_yellow = np.array([35, 255, 255])
-        
-        # Naranja fluorescente
-        lower_orange = np.array([5, 150, 150])
-        upper_orange = np.array([20, 255, 255])
-        
-        # Verde lima (menos común pero usado)
-        lower_lime = np.array([35, 100, 100])
-        upper_lime = np.array([85, 255, 255])
-        
-        # Crear máscaras
-        mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
-        mask_orange = cv2.inRange(hsv, lower_orange, upper_orange)
-        mask_lime = cv2.inRange(hsv, lower_lime, upper_lime)
-        
-        # Combinar máscaras
-        combined_mask = mask_yellow | mask_orange | mask_lime
-        
-        # Calcular porcentaje
-        total_pixels = region.shape[0] * region.shape[1]
-        colored_pixels = np.count_nonzero(combined_mask)
-        percentage = colored_pixels / total_pixels
-        
-        # Si más del 20% de la región tiene estos colores, probablemente es un chaleco
-        return percentage > 0.20
-    except:
-        return False
-
 def detect_objects(image, model, confidence_threshold=0.5):
     """Realiza detección de objetos en la imagen con parámetros optimizados"""
     try:
@@ -584,7 +517,7 @@ expert_system = SafetyExpertSystem()
 # =============================================
 # SIDEBAR
 # =============================================
-st.sidebar.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+st.sidebar.markdown('<div class="config-section">', unsafe_allow_html=True)
 st.sidebar.header("⚙️ Configuración del Detector")
 confidence_threshold = st.sidebar.slider(
     "Confianza Mínima de Detección", 
@@ -610,7 +543,7 @@ Las detecciones marcadas con **(IA)** son inferidas por análisis de color.
 
 st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
-st.sidebar.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+st.sidebar.markdown('<div class="config-section">', unsafe_allow_html=True)
 st.sidebar.header("📊 Información del Modelo")
 model = load_yolo_model()
 if model:
@@ -785,12 +718,14 @@ with col1:
     else:
         st.info("👆 **Sube una imagen para comenzar el análisis de seguridad**")
         st.markdown("""
-        **📸 Recomendaciones para mejores resultados:**
-        - Usa imágenes con buena iluminación
-        - Asegúrate que los trabajadores sean visibles
-        - Evita imágenes muy borrosas o de baja calidad
+        <div class="analysis-section">
+        <strong>📸 Recomendaciones para mejores resultados:</strong><br>
+        - Usa imágenes con buena iluminación<br>
+        - Asegúrate que los trabajadores sean visibles<br>
+        - Evita imágenes muy borrosas o de baja calidad<br>
         - El modelo detecta: personas, cascos y chalecos reflectantes
-        """)
+        </div>
+        """, unsafe_allow_html=True)
 
 with col2:
     st.subheader("📊 Panel de Control")
@@ -804,7 +739,7 @@ with col2:
         compliance = 0
     
     # Métricas principales
-    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+    st.markdown('<div class="panel-section">', unsafe_allow_html=True)
     st.metric("👥 Trabajadores Detectados", stats['persons'])
     st.metric("🪖 Cascos Detectados", stats['helmets'])
     st.metric("🦺 Chalecos Detectados", stats['vests'])
@@ -834,7 +769,7 @@ with col2:
         for i, record in enumerate(reversed(st.session_state.analysis_history[-5:]), 1):
             status_emoji = "🚨" if record['alert_level'] == "ALTA" else "⚠️" if record['alert_level'] == "MEDIA" else "✅"
             st.markdown(f"""
-            <div class="detection-box">
+            <div class="historial-box">
                 {status_emoji} <strong>Análisis #{len(st.session_state.analysis_history) - i + 1}</strong><br>
                 📸 {record['filename'][:20]}...<br>
                 🕐 {record['timestamp'].strftime('%H:%M:%S')}<br>
@@ -875,7 +810,7 @@ with col6:
 # FOOTER E INFORMACIÓN
 # =============================================
 st.markdown("---")
-st.sidebar.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+st.sidebar.markdown('<div class="config-section">', unsafe_allow_html=True)
 st.sidebar.subheader("ℹ️ Acerca de SafeBuild AI")
 st.sidebar.info("""
 **SafeBuild AI v2.0**  
