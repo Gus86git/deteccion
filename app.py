@@ -205,7 +205,7 @@ class SafetyExpertSystem:
         return round(total_compliance, 1)
 
 # =============================================
-# DETECTOR YOLO
+# DETECTOR YOLO Y FUNCIONES DE DETECCIÓN
 # =============================================
 @st.cache_resource
 def load_yolo_model():
@@ -223,6 +223,263 @@ def load_yolo_model():
     except Exception as e:
         st.error(f"❌ Error al cargar modelo: {str(e)}")
         return None
+
+def detect_helmet_by_color(region):
+    """
+    Detecta cascos basándose en colores característicos
+    Cascos comunes: blanco, amarillo, naranja, rojo, azul
+    """
+    try:
+        if region.size == 0:
+            return False
+        
+        # Convertir a HSV para mejor detección de colores
+        hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+        
+        # Definir rangos de colores para cascos
+        # Amarillo
+        lower_yellow = np.array([20, 100, 100])
+        upper_yellow = np.array([30, 255, 255])
+        
+        # Naranja
+        lower_orange = np.array([5, 100, 100])
+        upper_orange = np.array([15, 255, 255])
+        
+        # Rojo (dos rangos)
+        lower_red1 = np.array([0, 100, 100])
+        upper_red1 = np.array([10, 255, 255])
+        lower_red2 = np.array([160, 100, 100])
+        upper_red2 = np.array([180, 255, 255])
+        
+        # Azul
+        lower_blue = np.array([100, 100, 100])
+        upper_blue = np.array([130, 255, 255])
+        
+        # Blanco (alta luminosidad)
+        lower_white = np.array([0, 0, 200])
+        upper_white = np.array([180, 30, 255])
+        
+        # Crear máscaras
+        mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
+        mask_orange = cv2.inRange(hsv, lower_orange, upper_orange)
+        mask_red = cv2.inRange(hsv, lower_red1, upper_red1) | cv2.inRange(hsv, lower_red2, upper_red2)
+        mask_blue = cv2.inRange(hsv, lower_blue, upper_blue)
+        mask_white = cv2.inRange(hsv, lower_white, upper_white)
+        
+        # Combinar máscaras
+        combined_mask = mask_yellow | mask_orange | mask_red | mask_blue | mask_white
+        
+        # Calcular porcentaje de píxeles que coinciden
+        total_pixels = region.shape[0] * region.shape[1]
+        colored_pixels = np.count_nonzero(combined_mask)
+        percentage = colored_pixels / total_pixels
+        
+        # Si más del 15% de la región tiene estos colores, probablemente es un casco
+        return percentage > 0.15
+    except:
+        return False
+
+def detect_vest_by_color(region):
+    """
+    Detecta chalecos reflectantes basándose en colores característicos
+    Chalecos: amarillo fluorescente, naranja fluorescente, verde lima
+    """
+    try:
+        if region.size == 0:
+            return False
+        
+        # Convertir a HSV
+        hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+        
+        # Amarillo fluorescente (muy común en chalecos)
+        lower_yellow = np.array([20, 100, 150])
+        upper_yellow = np.array([35, 255, 255])
+        
+        # Naranja fluorescente
+        lower_orange = np.array([5, 150, 150])
+        upper_orange = np.array([20, 255, 255])
+        
+        # Verde lima (menos común pero usado)
+        lower_lime = np.array([35, 100, 100])
+        upper_lime = np.array([85, 255, 255])
+        
+        # Crear máscaras
+        mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
+        mask_orange = cv2.inRange(hsv, lower_orange, upper_orange)
+        mask_lime = cv2.inRange(hsv, lower_lime, upper_lime)
+        
+        # Combinar máscaras
+        combined_mask = mask_yellow | mask_orange | mask_lime
+        
+        # Calcular porcentaje
+        total_pixels = region.shape[0] * region.shape[1]
+        colored_pixels = np.count_nonzero(combined_mask)
+        percentage = colored_pixels / total_pixels
+        
+        # Si más del 20% de la región tiene estos colores, probablemente es un chaleco
+        return percentage > 0.20
+    except:
+        return False
+
+def enhance_ppe_detection(image, detections):
+    """
+    Mejora las detecciones de EPP usando análisis de color y posición
+    YOLOv8 base no está entrenado para EPP, así que inferimos basado en:
+    - Cascos: objetos en la parte superior de personas (región de cabeza) con colores típicos
+    - Chalecos: objetos en torso con colores reflectantes (amarillo, naranja, verde)
+    """
+    enhanced = detections.copy()
+    
+    # Separar personas del resto
+    persons = [d for d in detections if d['class'] == 'person']
+    
+    for person in persons:
+        x1, y1, x2, y2 = person['bbox']
+        person_width = x2 - x1
+        person_height = y2 - y1
+        
+        # Región de la cabeza (20% superior del cuerpo)
+        head_region = image[y1:int(y1 + person_height * 0.2), x1:x2]
+        
+        # Región del torso (30-70% del cuerpo)
+        torso_region = image[int(y1 + person_height * 0.3):int(y1 + person_height * 0.7), x1:x2]
+        
+        if head_region.size > 0:
+            # Detectar casco basado en colores característicos
+            helmet_detected = detect_helmet_by_color(head_region)
+            if helmet_detected:
+                # Agregar detección de casco
+                helmet_bbox = [
+                    x1,
+                    y1,
+                    x2,
+                    int(y1 + person_height * 0.25)
+                ]
+                enhanced.append({
+                    'class': 'helmet',
+                    'confidence': 0.70,  # Confianza media-alta para inferencia
+                    'bbox': helmet_bbox,
+                    'area': (helmet_bbox[2]-helmet_bbox[0]) * (helmet_bbox[3]-helmet_bbox[1]),
+                    'inferred': True
+                })
+        
+        if torso_region.size > 0:
+            # Detectar chaleco basado en colores reflectantes
+            vest_detected = detect_vest_by_color(torso_region)
+            if vest_detected:
+                # Agregar detección de chaleco
+                vest_bbox = [
+                    x1,
+                    int(y1 + person_height * 0.25),
+                    x2,
+                    int(y1 + person_height * 0.75)
+                ]
+                enhanced.append({
+                    'class': 'safety_vest',
+                    'confidence': 0.65,  # Confianza media para inferencia
+                    'bbox': vest_bbox,
+                    'area': (vest_bbox[2]-vest_bbox[0]) * (vest_bbox[3]-vest_bbox[1]),
+                    'inferred': True
+                })
+    
+    return enhanced
+
+def detect_helmet_by_color(region):
+    """
+    Detecta cascos basándose en colores característicos
+    Cascos comunes: blanco, amarillo, naranja, rojo, azul
+    """
+    try:
+        if region.size == 0:
+            return False
+        
+        # Convertir a HSV para mejor detección de colores
+        hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+        
+        # Definir rangos de colores para cascos
+        # Amarillo
+        lower_yellow = np.array([20, 100, 100])
+        upper_yellow = np.array([30, 255, 255])
+        
+        # Naranja
+        lower_orange = np.array([5, 100, 100])
+        upper_orange = np.array([15, 255, 255])
+        
+        # Rojo (dos rangos)
+        lower_red1 = np.array([0, 100, 100])
+        upper_red1 = np.array([10, 255, 255])
+        lower_red2 = np.array([160, 100, 100])
+        upper_red2 = np.array([180, 255, 255])
+        
+        # Azul
+        lower_blue = np.array([100, 100, 100])
+        upper_blue = np.array([130, 255, 255])
+        
+        # Blanco (alta luminosidad)
+        lower_white = np.array([0, 0, 200])
+        upper_white = np.array([180, 30, 255])
+        
+        # Crear máscaras
+        mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
+        mask_orange = cv2.inRange(hsv, lower_orange, upper_orange)
+        mask_red = cv2.inRange(hsv, lower_red1, upper_red1) | cv2.inRange(hsv, lower_red2, upper_red2)
+        mask_blue = cv2.inRange(hsv, lower_blue, upper_blue)
+        mask_white = cv2.inRange(hsv, lower_white, upper_white)
+        
+        # Combinar máscaras
+        combined_mask = mask_yellow | mask_orange | mask_red | mask_blue | mask_white
+        
+        # Calcular porcentaje de píxeles que coinciden
+        total_pixels = region.shape[0] * region.shape[1]
+        colored_pixels = np.count_nonzero(combined_mask)
+        percentage = colored_pixels / total_pixels
+        
+        # Si más del 15% de la región tiene estos colores, probablemente es un casco
+        return percentage > 0.15
+    except:
+        return False
+
+def detect_vest_by_color(region):
+    """
+    Detecta chalecos reflectantes basándose en colores característicos
+    Chalecos: amarillo fluorescente, naranja fluorescente, verde lima
+    """
+    try:
+        if region.size == 0:
+            return False
+        
+        # Convertir a HSV
+        hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+        
+        # Amarillo fluorescente (muy común en chalecos)
+        lower_yellow = np.array([20, 100, 150])
+        upper_yellow = np.array([35, 255, 255])
+        
+        # Naranja fluorescente
+        lower_orange = np.array([5, 150, 150])
+        upper_orange = np.array([20, 255, 255])
+        
+        # Verde lima (menos común pero usado)
+        lower_lime = np.array([35, 100, 100])
+        upper_lime = np.array([85, 255, 255])
+        
+        # Crear máscaras
+        mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
+        mask_orange = cv2.inRange(hsv, lower_orange, upper_orange)
+        mask_lime = cv2.inRange(hsv, lower_lime, upper_lime)
+        
+        # Combinar máscaras
+        combined_mask = mask_yellow | mask_orange | mask_lime
+        
+        # Calcular porcentaje
+        total_pixels = region.shape[0] * region.shape[1]
+        colored_pixels = np.count_nonzero(combined_mask)
+        percentage = colored_pixels / total_pixels
+        
+        # Si más del 20% de la región tiene estos colores, probablemente es un chaleco
+        return percentage > 0.20
+    except:
+        return False
 
 def detect_objects(image, model, confidence_threshold=0.5):
     """Realiza detección de objetos en la imagen con parámetros optimizados"""
@@ -282,9 +539,9 @@ def draw_detections(image, detections, confidence_threshold=0.5):
         'helmet': (0, 255, 0),      # Verde
         'hardhat': (0, 255, 0),     # Verde
         'hard-hat': (0, 255, 0),    # Verde
-        'safety_vest': (0, 0, 255), # Azul
-        'vest': (0, 0, 255),        # Azul
-        'safety-vest': (0, 0, 255)  # Azul
+        'safety_vest': (0, 255, 255), # Amarillo/Cyan
+        'vest': (0, 255, 255),      # Amarillo/Cyan
+        'safety-vest': (0, 255, 255)  # Amarillo/Cyan
     }
     
     for det in detections:
@@ -292,21 +549,27 @@ def draw_detections(image, detections, confidence_threshold=0.5):
             x1, y1, x2, y2 = det['bbox']
             class_name = det['class']
             confidence = det['confidence']
+            is_inferred = det.get('inferred', False)
             
             color = colors.get(class_name, (255, 255, 0))
             
+            # Si es inferido, usar línea punteada (simulada con línea más delgada)
+            thickness = 2 if is_inferred else 3
+            
             # Dibujar rectángulo
-            cv2.rectangle(img_draw, (x1, y1), (x2, y2), color, 3)
+            cv2.rectangle(img_draw, (x1, y1), (x2, y2), color, thickness)
             
             # Preparar texto
             label = f"{class_name}: {confidence:.2f}"
+            if is_inferred:
+                label += " (IA)"
             
             # Fondo para el texto
-            (text_width, text_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-            cv2.rectangle(img_draw, (x1, y1 - text_height - 10), (x1 + text_width, y1), color, -1)
+            (text_width, text_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+            cv2.rectangle(img_draw, (x1, y1 - text_height - 10), (x1 + text_width + 5, y1), color, -1)
             
             # Texto
-            cv2.putText(img_draw, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.putText(img_draw, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
     
     return Image.fromarray(img_draw)
 
@@ -327,13 +590,24 @@ confidence_threshold = st.sidebar.slider(
     "Confianza Mínima de Detección", 
     min_value=0.1, 
     max_value=0.95, 
-    value=0.5, 
+    value=0.4, 
     step=0.05,
-    help="Umbral mínimo de confianza para considerar una detección válida"
+    help="Umbral mínimo de confianza para considerar una detección válida. Valor más bajo = más detecciones pero más falsos positivos"
 )
 
 show_boxes = st.sidebar.checkbox("Mostrar Bounding Boxes", True)
 show_labels = st.sidebar.checkbox("Mostrar Etiquetas", True)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("**🎨 Detección de EPP por Color**")
+st.sidebar.info("""
+El sistema usa análisis de color para detectar:
+- 🪖 **Cascos**: Blanco, amarillo, naranja, rojo, azul
+- 🦺 **Chalecos**: Amarillo/naranja fluorescente, verde lima
+
+Las detecciones marcadas con **(IA)** son inferidas por análisis de color.
+""")
+
 st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
 st.sidebar.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
