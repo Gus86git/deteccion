@@ -167,10 +167,14 @@ class SafetyExpertSystem:
         for rule_name, rule in sorted(self.rules.items(), key=lambda x: x[1]['priority']):
             if rule['condition'](detection_stats):
                 message = rule['message']
-                # Formatear mensaje con estadísticas actuales
-                if 'personas' in message or 'trabajador' in message:
-                    missing = detection_stats['persons'] - (detection_stats['helmets'] if 'casco' in message else detection_stats['vests'])
-                    message = message.replace(f"{detection_stats['persons'] - detection_stats['helmets']}", str(missing))
+                
+                # Personalizar mensaje con números específicos
+                if rule_name == 'no_helmet_partial':
+                    missing_helmets = detection_stats['persons'] - detection_stats['helmets']
+                    message = f"ALTA: {missing_helmets} trabajador(es) sin casco de seguridad"
+                elif rule_name == 'no_vest_partial':
+                    missing_vests = detection_stats['persons'] - detection_stats['vests']
+                    message = f"MEDIA: {missing_vests} trabajador(es) sin chaleco reflectante"
                 
                 return {
                     'alert_level': rule['level'],
@@ -221,14 +225,23 @@ def load_yolo_model():
         return None
 
 def detect_objects(image, model, confidence_threshold=0.5):
-    """Realiza detección de objetos en la imagen"""
+    """Realiza detección de objetos en la imagen con parámetros optimizados"""
     try:
         # Convertir imagen PIL a formato OpenCV
         img_array = np.array(image)
         img_rgb = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
         
-        # Realizar inferencia
-        results = model(img_rgb, conf=confidence_threshold)
+        # Realizar inferencia con parámetros optimizados
+        results = model.predict(
+            img_rgb,
+            conf=confidence_threshold,
+            iou=0.45,  # Umbral de IoU para NMS (Non-Maximum Suppression)
+            imgsz=640,  # Tamaño de imagen optimizado
+            augment=True,  # Test Time Augmentation para mejor precisión
+            agnostic_nms=False,  # NMS por clase
+            max_det=300,  # Máximo de detecciones
+            verbose=False
+        )
         
         detections = []
         for result in results:
@@ -237,15 +250,22 @@ def detect_objects(image, model, confidence_threshold=0.5):
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                 conf = float(box.conf[0].cpu().numpy())
                 cls = int(box.cls[0].cpu().numpy())
-                class_name = model.names[cls]
+                class_name = model.names[cls].lower()
                 
+                # Mapear nombres de clases similares
+                # YOLOv8 base puede detectar 'person' pero no EPP específico
+                # Necesitamos inferir EPP basado en características de región
                 detections.append({
                     'class': class_name,
                     'confidence': conf,
-                    'bbox': [int(x1), int(y1), int(x2), int(y2)]
+                    'bbox': [int(x1), int(y1), int(x2), int(y2)],
+                    'area': (x2-x1) * (y2-y1)
                 })
         
-        return detections, results
+        # Post-procesamiento: Inferir EPP basado en detecciones de personas
+        enhanced_detections = enhance_ppe_detection(img_rgb, detections)
+        
+        return enhanced_detections, results
     except Exception as e:
         st.error(f"❌ Error en detección: {str(e)}")
         return [], None
