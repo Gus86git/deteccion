@@ -115,7 +115,7 @@ class SafetyExpertSystem:
             },
             'no_helmet_partial': {
                 'condition': lambda stats: stats['persons'] > 0 and stats['helmets'] < stats['persons'],
-                'message': f"ALTA: {stats['persons'] - stats['helmets']} trabajador(es) sin casco de seguridad",
+                'message': "ALTA: Trabajadores detectados sin casco de seguridad",
                 'level': "ALTA", 
                 'action': "Aislar el área y proveer EPP inmediatamente",
                 'priority': 2
@@ -129,7 +129,7 @@ class SafetyExpertSystem:
             },
             'no_vest_partial': {
                 'condition': lambda stats: stats['persons'] > 0 and stats['vests'] < stats['persons'],
-                'message': f"MEDIA: {stats['persons'] - stats['vests']} trabajador(es) sin chaleco reflectante",
+                'message': "MEDIA: Trabajadores detectados sin chaleco reflectante",
                 'level': "MEDIA",
                 'action': "Recordar uso obligatorio de chaleco en reunión de seguridad",
                 'priority': 4
