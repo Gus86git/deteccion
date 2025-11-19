@@ -203,87 +203,106 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =============================================
-# SISTEMA EXPERTO DE SEGURIDAD
+# SISTEMA EXPERTO DE SEGURIDAD MEJORADO
 # =============================================
 class SafetyExpertSystem:
     def __init__(self):
         self.rules = {
+            'height_risk_critical': {
+                'condition': lambda stats: stats['persons_high_risk'] > 0 and stats['helmets_high_risk'] == 0,
+                'message': "CRÍTICO: Personal en zona de altura sin ningún casco",
+                'level': "ALTA",
+                'action': "🚫 SUSPENDER trabajos en altura - Implementar andamios y redes",
+                'priority': 1
+            },
+            'height_risk_partial': {
+                'condition': lambda stats: stats['persons_high_risk'] > 0 and stats['helmets_high_risk'] < stats['persons_high_risk'],
+                'message': "ALTO RIESGO: Personal en zona elevada sin protección completa",
+                'level': "ALTA", 
+                'action': "📏 DELIMITAR área de riesgo - Proveer EPP inmediatamente",
+                'priority': 2
+            },
+            'no_ppe_complete': {
+                'condition': lambda stats: stats['persons'] > 0 and stats['full_ppe'] == 0,
+                'message': "PROTECCIÓN INCOMPLETA: Ningún trabajador con EPP completo",
+                'level': "ALTA",
+                'action': "🛑 DETENER actividades - Verificar dotación de EPP completo",
+                'priority': 3
+            },
             'no_helmet_critical': {
                 'condition': lambda stats: stats['persons'] > 0 and stats['helmets'] == 0,
                 'message': "CRÍTICO: Ningún trabajador usa casco de seguridad",
                 'level': "ALTA",
                 'action': "DETENER actividades inmediatamente y notificar al supervisor de seguridad",
-                'priority': 1
+                'priority': 4
             },
             'no_helmet_partial': {
                 'condition': lambda stats: stats['persons'] > 0 and stats['helmets'] < stats['persons'],
                 'message': "ALTA: Trabajadores detectados sin casco de seguridad",
                 'level': "ALTA", 
                 'action': "Aislar el área y proveer EPP inmediatamente",
-                'priority': 2
+                'priority': 5
             },
             'no_vest_critical': {
                 'condition': lambda stats: stats['persons'] > 0 and stats['vests'] == 0,
                 'message': "MEDIA: Ningún trabajador usa chaleco reflectante",
                 'level': "MEDIA",
                 'action': "Notificar al supervisor y proveer chalecos de seguridad",
-                'priority': 3
+                'priority': 6
             },
             'no_vest_partial': {
                 'condition': lambda stats: stats['persons'] > 0 and stats['vests'] < stats['persons'],
                 'message': "MEDIA: Trabajadores detectados sin chaleco reflectante",
                 'level': "MEDIA",
                 'action': "Recordar uso obligatorio de chaleco en reunión de seguridad",
-                'priority': 4
+                'priority': 7
             },
             'proper_equipment': {
                 'condition': lambda stats: stats['persons'] > 0 and stats['helmets'] >= stats['persons'] and stats['vests'] >= stats['persons'],
                 'message': "OK: Todo el personal cuenta con Equipo de Protección Personal completo",
                 'level': "OK",
                 'action': "Continuar monitoreo y mantener los estándares de seguridad",
-                'priority': 5
+                'priority': 8
             },
             'no_persons': {
                 'condition': lambda stats: stats['persons'] == 0,
                 'message': "OK: No se detectaron trabajadores en el área analizada",
                 'level': "OK", 
                 'action': "Continuar con el monitoreo rutinario del área",
-                'priority': 6
+                'priority': 9
             }
         }
     
-    def analyze_detections(self, detections, confidence_threshold=0.5):
+    def analyze_detections(self, detections, confidence_threshold=0.5, image_size=None):
         """Analiza las detecciones y aplica las reglas del sistema experto"""
+        # Estadísticas básicas
         person_count = sum(1 for det in detections if det['class'] in ['person', 'worker'] and det['confidence'] >= confidence_threshold)
         helmet_count = sum(1 for det in detections if det['class'] in ['helmet', 'hardhat', 'hard-hat'] and det['confidence'] >= confidence_threshold)
         vest_count = sum(1 for det in detections if det['class'] in ['safety_vest', 'vest', 'safety-vest'] and det['confidence'] >= confidence_threshold)
+        
+        # Nuevas estadísticas de contexto
+        context_stats = self._analyze_context(detections, image_size, confidence_threshold)
         
         detection_stats = {
             'persons': person_count,
             'helmets': helmet_count,
             'vests': vest_count,
-            'total_detections': len(detections)
+            'total_detections': len(detections),
+            'persons_high_risk': context_stats['persons_high_risk'],
+            'helmets_high_risk': context_stats['helmets_high_risk'],
+            'full_ppe': context_stats['full_ppe']
         }
         
         # Aplicar reglas en orden de prioridad
         for rule_name, rule in sorted(self.rules.items(), key=lambda x: x[1]['priority']):
             if rule['condition'](detection_stats):
-                message = rule['message']
-                
-                # Personalizar mensaje con números específicos
-                if rule_name == 'no_helmet_partial':
-                    missing_helmets = detection_stats['persons'] - detection_stats['helmets']
-                    message = f"ALTA: {missing_helmets} trabajador(es) sin casco de seguridad"
-                elif rule_name == 'no_vest_partial':
-                    missing_vests = detection_stats['persons'] - detection_stats['vests']
-                    message = f"MEDIA: {missing_vests} trabajador(es) sin chaleco reflectante"
-                
                 return {
                     'alert_level': rule['level'],
-                    'alert_message': message,
+                    'alert_message': rule['message'],
                     'recommended_action': rule['action'],
                     'statistics': detection_stats,
-                    'compliance_rate': self._calculate_compliance(detection_stats)
+                    'compliance_rate': self._calculate_compliance(detection_stats),
+                    'rule_triggered': rule_name
                 }
         
         return {
@@ -291,8 +310,87 @@ class SafetyExpertSystem:
             'alert_message': "Condiciones normales de seguridad detectadas",
             'recommended_action': "Continuar con el monitoreo rutinario",
             'statistics': detection_stats,
-            'compliance_rate': 100.0
+            'compliance_rate': 100.0,
+            'rule_triggered': 'default'
         }
+    
+    def _analyze_context(self, detections, image_size, confidence_threshold):
+        """Analiza el contexto de las detecciones para reglas avanzadas"""
+        if image_size is None:
+            return {
+                'persons_high_risk': 0,
+                'helmets_high_risk': 0,
+                'full_ppe': 0
+            }
+        
+        height, width = image_size
+        persons_high_risk = 0
+        helmets_high_risk = 0
+        full_ppe_count = 0
+        
+        # Obtener todas las personas
+        persons = [d for d in detections if d['class'] in ['person', 'worker'] and d['confidence'] >= confidence_threshold]
+        
+        for person in persons:
+            # Calcular posición vertical (y_center)
+            y_center = (person['bbox'][1] + person['bbox'][3]) / 2
+            
+            # Persona en zona de alto riesgo (parte superior de la imagen)
+            if y_center < height * 0.4:  # 40% superior de la imagen
+                persons_high_risk += 1
+                
+                # Verificar si tiene casco en zona de riesgo
+                if self._has_helmet_nearby(person, detections):
+                    helmets_high_risk += 1
+            
+            # Verificar EPP completo (casco + chaleco)
+            if self._has_full_ppe(person, detections):
+                full_ppe_count += 1
+        
+        return {
+            'persons_high_risk': persons_high_risk,
+            'helmets_high_risk': helmets_high_risk,
+            'full_ppe': full_ppe_count
+        }
+    
+    def _has_helmet_nearby(self, person_det, all_detections):
+        """Verifica si una persona tiene casco cerca (misma zona)"""
+        person_bbox = person_det['bbox']
+        
+        for det in all_detections:
+            if det['class'] in ['helmet', 'hardhat', 'hard-hat']:
+                helmet_bbox = det['bbox']
+                # Verificar superposición en eje Y (misma altura)
+                if self._bboxes_overlap_vertical(person_bbox, helmet_bbox):
+                    return True
+        return False
+    
+    def _has_full_ppe(self, person_det, all_detections):
+        """Verifica si una persona tiene EPP completo (casco + chaleco)"""
+        person_bbox = person_det['bbox']
+        has_helmet = False
+        has_vest = False
+        
+        for det in all_detections:
+            if det['class'] in ['helmet', 'hardhat', 'hard-hat']:
+                if self._bboxes_overlap_vertical(person_bbox, det['bbox']):
+                    has_helmet = True
+            elif det['class'] in ['safety_vest', 'vest', 'safety-vest']:
+                if self._bboxes_overlap_vertical(person_bbox, det['bbox']):
+                    has_vest = True
+        
+        return has_helmet and has_vest
+    
+    def _bboxes_overlap_vertical(self, bbox1, bbox2, threshold=0.3):
+        """Verifica si dos bounding boxes se superponen verticalmente"""
+        y1_1, y2_1 = bbox1[1], bbox1[3]
+        y1_2, y2_2 = bbox2[1], bbox2[3]
+        
+        # Calcular superposición vertical
+        overlap = min(y2_1, y2_2) - max(y1_1, y1_2)
+        height1 = y2_1 - y1_1
+        
+        return overlap > height1 * threshold
     
     def _calculate_compliance(self, stats):
         """Calcula el porcentaje de cumplimiento de EPP"""
@@ -302,9 +400,15 @@ class SafetyExpertSystem:
         helmet_compliance = (stats['helmets'] / stats['persons']) * 100
         vest_compliance = (stats['vests'] / stats['persons']) * 100
         
+        # Penalización por riesgo de altura sin protección
+        height_risk_penalty = 0
+        if stats['persons_high_risk'] > 0:
+            height_protection_rate = stats['helmets_high_risk'] / stats['persons_high_risk'] if stats['persons_high_risk'] > 0 else 1
+            height_risk_penalty = (1 - height_protection_rate) * 20  # Hasta 20% de penalización
+        
         # Promedio ponderado (casco es más crítico)
-        total_compliance = (helmet_compliance * 0.6 + vest_compliance * 0.4)
-        return round(total_compliance, 1)
+        total_compliance = (helmet_compliance * 0.6 + vest_compliance * 0.4) - height_risk_penalty
+        return max(0, round(total_compliance, 1))
 
 # =============================================
 # DETECTOR YOLO Y FUNCIONES DE DETECCIÓN
@@ -690,8 +794,13 @@ with col1:
                     
                     progress_bar.progress(60)
                     
-                    # Analizar con sistema experto
-                    analysis = expert_system.analyze_detections(detections, confidence_threshold)
+                    # Analizar con sistema experto (pasando tamaño de imagen para contexto)
+                    image_array = np.array(image)
+                    analysis = expert_system.analyze_detections(
+                        detections, 
+                        confidence_threshold,
+                        image_size=image_array.shape[:2]  # (height, width)
+                    )
                     
                     progress_bar.progress(100)
                     time.sleep(0.2)
@@ -712,7 +821,8 @@ with col1:
                     'filename': uploaded_file.name,
                     'detections': len(detections),
                     'alert_level': analysis['alert_level'],
-                    'statistics': analysis['statistics']
+                    'statistics': analysis['statistics'],
+                    'rule_triggered': analysis.get('rule_triggered', 'default')
                 })
                 
                 # Mostrar información de detecciones
@@ -721,7 +831,7 @@ with col1:
                 st.subheader("🔍 Detecciones Realizadas")
                 
                 if detections:
-                    col_det1, col_det2, col_det3, col_det4 = st.columns(4)
+                    col_det1, col_det2, col_det3, col_det4, col_det5 = st.columns(5)
                     with col_det1:
                         st.metric("📦 Total Detecciones", len(detections))
                     with col_det2:
@@ -730,6 +840,12 @@ with col1:
                         st.metric("🪖 Cascos", analysis['statistics']['helmets'])
                     with col_det4:
                         st.metric("🦺 Chalecos", analysis['statistics']['vests'])
+                    with col_det5:
+                        st.metric("🛡️ EPP Completo", analysis['statistics']['full_ppe'])
+                    
+                    # Mostrar estadísticas de contexto si existen
+                    if analysis['statistics']['persons_high_risk'] > 0:
+                        st.info(f"⚠️ **Zona de Altura:** {analysis['statistics']['persons_high_risk']} persona(s) en área de riesgo elevado")
                     
                     # Tabla de detecciones
                     with st.expander("📋 Ver detalle de todas las detecciones"):
@@ -842,7 +958,7 @@ with col2:
         stats = analysis['statistics']
         compliance = analysis['compliance_rate']
     else:
-        stats = {'persons': 0, 'helmets': 0, 'vests': 0, 'total_detections': 0}
+        stats = {'persons': 0, 'helmets': 0, 'vests': 0, 'total_detections': 0, 'full_ppe': 0, 'persons_high_risk': 0}
         compliance = 0
     
     # Métricas principales
@@ -850,6 +966,7 @@ with col2:
     st.metric("👥 Trabajadores Detectados", stats['persons'])
     st.metric("🪖 Cascos Detectados", stats['helmets'])
     st.metric("🦺 Chalecos Detectados", stats['vests'])
+    st.metric("🛡️ EPP Completo", stats['full_ppe'])
     st.metric("📈 Cumplimiento EPP", f"{compliance:.1f}%")
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -867,6 +984,14 @@ with col2:
             st.warning(f"⚠️ {missing_vests} trabajador(es) sin chaleco")
         else:
             st.success("✅ Todos con chaleco")
+            
+        if stats['full_ppe'] == 0:
+            st.error("❌ Ningún trabajador con EPP completo")
+        else:
+            st.success(f"✅ {stats['full_ppe']} trabajador(es) con EPP completo")
+            
+        if stats['persons_high_risk'] > 0:
+            st.warning(f"⚠️ {stats['persons_high_risk']} persona(s) en zona de altura")
     else:
         st.info("👀 No hay trabajadores detectados")
     
