@@ -1,14 +1,19 @@
 import streamlit as st
+import cv2
 import numpy as np
 from PIL import Image
+import io
+from datetime import datetime
 import time
-import cv2
+from ultralytics import YOLO
+import tempfile
+import os
 
 # =============================================
 # CONFIGURACIÓN DE LA PÁGINA
 # =============================================
 st.set_page_config(
-    page_title="SafeBuild Pro - YOLO",
+    page_title="SafeBuild - Monitoreo de Seguridad con IA",
     page_icon="🦺",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -24,6 +29,7 @@ st.markdown("""
         color: #1E3A8A;
         text-align: center;
         margin-bottom: 1rem;
+        font-weight: bold;
     }
     .alert-high {
         background-color: #FEE2E2;
@@ -31,7 +37,7 @@ st.markdown("""
         border-radius: 0.5rem;
         border-left: 6px solid #DC2626;
         margin: 1rem 0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     .alert-medium {
         background-color: #FEF3C7;
@@ -39,7 +45,7 @@ st.markdown("""
         border-radius: 0.5rem;
         border-left: 6px solid #D97706;
         margin: 1rem 0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     .alert-ok {
         background-color: #D1FAE5;
@@ -47,42 +53,52 @@ st.markdown("""
         border-radius: 0.5rem;
         border-left: 6px solid #059669;
         margin: 1rem 0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     .metric-card {
         background-color: #F8FAFC;
-        padding: 1rem;
+        padding: 1.5rem;
         border-radius: 0.5rem;
         border: 2px solid #E2E8F0;
         margin: 0.5rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
-    .yolo-badge {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    .detection-box {
+        background-color: #FFFFFF;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border: 1px solid #E2E8F0;
+        margin: 0.5rem 0;
+    }
+    .sidebar-section {
+        background-color: #F1F5F9;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+    }
+    .stButton button {
+        width: 100%;
+        background-color: #1E40AF;
         color: white;
-        padding: 0.5rem 1rem;
-        border-radius: 2rem;
         font-weight: bold;
-        display: inline-block;
-        margin: 0.2rem;
+        border: none;
+        padding: 0.75rem 1rem;
+        border-radius: 0.5rem;
+        transition: all 0.3s;
+    }
+    .stButton button:hover {
+        background-color: #1E3A8A;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .info-box {
+        background-color: #EFF6FF;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #3B82F6;
+        margin: 1rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
-
-# =============================================
-# CARGA DEL MODELO YOLO
-# =============================================
-@st.cache_resource
-def load_yolo_model():
-    """Carga el modelo YOLO y lo cachea para mejor performance"""
-    try:
-        from ultralytics import YOLO
-        # YOLOv8n es liviano y rápido - perfecto para Streamlit Cloud
-        model = YOLO('yolov8n.pt')
-        st.sidebar.success("✅ YOLOv8n cargado exitosamente!")
-        return model
-    except Exception as e:
-        st.error(f"❌ Error cargando YOLO: {str(e)}")
-        return None
 
 # =============================================
 # SISTEMA EXPERTO DE SEGURIDAD
@@ -90,363 +106,512 @@ def load_yolo_model():
 class SafetyExpertSystem:
     def __init__(self):
         self.rules = {
-            'no_ppe_high_risk': {
-                'condition': lambda stats: stats['persons'] >= 2 and stats['hardhats'] == 0,
-                'message': "ALTA: Múltiples trabajadores sin protección en cabeza",
+            'no_helmet_critical': {
+                'condition': lambda stats: stats['persons'] > 0 and stats['helmets'] == 0,
+                'message': "CRÍTICO: Ningún trabajador usa casco de seguridad",
                 'level': "ALTA",
-                'action': "Suspender actividades y proveer EPP inmediatamente"
+                'action': "DETENER actividades inmediatamente y notificar al supervisor de seguridad",
+                'priority': 1
             },
-            'partial_ppe': {
-                'condition': lambda stats: stats['persons'] > 0 and stats['hardhats'] < stats['persons'],
-                'message': "MEDIA: Algunos trabajadores sin equipo de protección",
-                'level': "MEDIA", 
-                'action': "Capacitación inmediata y verificación de EPP"
+            'no_helmet_partial': {
+                'condition': lambda stats: stats['persons'] > 0 and stats['helmets'] < stats['persons'],
+                'message': f"ALTA: {stats['persons'] - stats['helmets']} trabajador(es) sin casco de seguridad",
+                'level': "ALTA", 
+                'action': "Aislar el área y proveer EPP inmediatamente",
+                'priority': 2
             },
-            'construction_heavy_equipment': {
-                'condition': lambda stats: stats['persons'] > 0 and stats['heavy_equipment'] > 0,
-                'message': "MEDIA: Personal trabajando cerca de maquinaria pesada",
+            'no_vest_critical': {
+                'condition': lambda stats: stats['persons'] > 0 and stats['vests'] == 0,
+                'message': "MEDIA: Ningún trabajador usa chaleco reflectante",
                 'level': "MEDIA",
-                'action': "Establecer zonas de seguridad y señalización"
+                'action': "Notificar al supervisor y proveer chalecos de seguridad",
+                'priority': 3
             },
-            'safe_conditions': {
-                'condition': lambda stats: stats['persons'] > 0 and stats['hardhats'] >= stats['persons'],
-                'message': "OK: Condiciones de seguridad adecuadas detectadas",
+            'no_vest_partial': {
+                'condition': lambda stats: stats['persons'] > 0 and stats['vests'] < stats['persons'],
+                'message': f"MEDIA: {stats['persons'] - stats['vests']} trabajador(es) sin chaleco reflectante",
+                'level': "MEDIA",
+                'action': "Recordar uso obligatorio de chaleco en reunión de seguridad",
+                'priority': 4
+            },
+            'proper_equipment': {
+                'condition': lambda stats: stats['persons'] > 0 and stats['helmets'] >= stats['persons'] and stats['vests'] >= stats['persons'],
+                'message': "OK: Todo el personal cuenta con Equipo de Protección Personal completo",
                 'level': "OK",
-                'action': "Continuar con monitoreo rutinario"
+                'action': "Continuar monitoreo y mantener los estándares de seguridad",
+                'priority': 5
             },
-            'no_activity': {
+            'no_persons': {
                 'condition': lambda stats: stats['persons'] == 0,
-                'message': "INFO: No se detectó actividad en el área",
+                'message': "OK: No se detectaron trabajadores en el área analizada",
                 'level': "OK", 
-                'action': "Monitoreo continuo del área"
+                'action': "Continuar con el monitoreo rutinario del área",
+                'priority': 6
             }
         }
     
-    def analyze_detections(self, detections):
-        """Analiza las detecciones de YOLO y aplica reglas de seguridad"""
+    def analyze_detections(self, detections, confidence_threshold=0.5):
+        """Analiza las detecciones y aplica las reglas del sistema experto"""
+        person_count = sum(1 for det in detections if det['class'] in ['person', 'worker'] and det['confidence'] >= confidence_threshold)
+        helmet_count = sum(1 for det in detections if det['class'] in ['helmet', 'hardhat', 'hard-hat'] and det['confidence'] >= confidence_threshold)
+        vest_count = sum(1 for det in detections if det['class'] in ['safety_vest', 'vest', 'safety-vest'] and det['confidence'] >= confidence_threshold)
         
-        # Contar objetos detectados
-        stats = {
-            'persons': len([d for d in detections if d['class_name'] == 'person']),
-            'hardhats': len([d for d in detections if d['class_name'] in ['hard hat', 'safety helmet']]),
-            'heavy_equipment': len([d for d in detections if d['class_name'] in ['truck', 'car', 'bus', 'construction equipment']]),
+        detection_stats = {
+            'persons': person_count,
+            'helmets': helmet_count,
+            'vests': vest_count,
             'total_detections': len(detections)
         }
         
         # Aplicar reglas en orden de prioridad
-        for rule_name, rule in self.rules.items():
-            if rule['condition'](stats):
+        for rule_name, rule in sorted(self.rules.items(), key=lambda x: x[1]['priority']):
+            if rule['condition'](detection_stats):
+                message = rule['message']
+                # Formatear mensaje con estadísticas actuales
+                if 'personas' in message or 'trabajador' in message:
+                    missing = detection_stats['persons'] - (detection_stats['helmets'] if 'casco' in message else detection_stats['vests'])
+                    message = message.replace(f"{detection_stats['persons'] - detection_stats['helmets']}", str(missing))
+                
                 return {
                     'alert_level': rule['level'],
-                    'alert_message': rule['message'],
+                    'alert_message': message,
                     'recommended_action': rule['action'],
-                    'statistics': stats
+                    'statistics': detection_stats,
+                    'compliance_rate': self._calculate_compliance(detection_stats)
                 }
         
         return {
             'alert_level': "OK",
-            'alert_message': "Situación normal detectada",
-            'recommended_action': "Continuar operaciones normales",
-            'statistics': stats
+            'alert_message': "Condiciones normales de seguridad detectadas",
+            'recommended_action': "Continuar con el monitoreo rutinario",
+            'statistics': detection_stats,
+            'compliance_rate': 100.0
         }
+    
+    def _calculate_compliance(self, stats):
+        """Calcula el porcentaje de cumplimiento de EPP"""
+        if stats['persons'] == 0:
+            return 100.0
+        
+        helmet_compliance = (stats['helmets'] / stats['persons']) * 100
+        vest_compliance = (stats['vests'] / stats['persons']) * 100
+        
+        # Promedio ponderado (casco es más crítico)
+        total_compliance = (helmet_compliance * 0.6 + vest_compliance * 0.4)
+        return round(total_compliance, 1)
 
 # =============================================
-# PROCESAMIENTO CON YOLO
+# DETECTOR YOLO
 # =============================================
-def process_image_with_yolo(model, image, confidence_threshold=0.5):
-    """Procesa una imagen con YOLO y retorna detecciones"""
+@st.cache_resource
+def load_yolo_model():
+    """Carga el modelo YOLO (cachea para evitar recargas)"""
     try:
-        # Convertir PIL Image a numpy array (RGB)
-        image_np = np.array(image)
+        # Intenta cargar modelo personalizado si existe
+        if os.path.exists('models/best.pt'):
+            model = YOLO('models/best.pt')
+            st.sidebar.success("✅ Modelo personalizado cargado")
+        else:
+            # Usa YOLOv8n como modelo base
+            model = YOLO('yolov8n.pt')
+            st.sidebar.info("ℹ️ Usando YOLOv8n base")
+        return model
+    except Exception as e:
+        st.error(f"❌ Error al cargar modelo: {str(e)}")
+        return None
+
+def detect_objects(image, model, confidence_threshold=0.5):
+    """Realiza detección de objetos en la imagen"""
+    try:
+        # Convertir imagen PIL a formato OpenCV
+        img_array = np.array(image)
+        img_rgb = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
         
-        # Convertir RGB a BGR para OpenCV (YOLO espera BGR)
-        if len(image_np.shape) == 3:
-            image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-        
-        # Ejecutar YOLO
-        results = model(image_np, conf=confidence_threshold, verbose=False)
+        # Realizar inferencia
+        results = model(img_rgb, conf=confidence_threshold)
         
         detections = []
-        if results and len(results) > 0:
-            result = results[0]
-            if result.boxes is not None:
-                for box in result.boxes:
-                    confidence = float(box.conf.item())
-                    class_id = int(box.cls.item())
-                    class_name = model.names[class_id]
-                    bbox = [float(coord) for coord in box.xyxy[0].tolist()]
-                    
-                    detections.append({
-                        'class_name': class_name,
-                        'confidence': confidence,
-                        'bbox': bbox,
-                        'class_id': class_id
-                    })
+        for result in results:
+            boxes = result.boxes
+            for box in boxes:
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                conf = float(box.conf[0].cpu().numpy())
+                cls = int(box.cls[0].cpu().numpy())
+                class_name = model.names[cls]
+                
+                detections.append({
+                    'class': class_name,
+                    'confidence': conf,
+                    'bbox': [int(x1), int(y1), int(x2), int(y2)]
+                })
         
-        return detections, results[0] if results else None
-        
+        return detections, results
     except Exception as e:
-        st.error(f"Error en procesamiento YOLO: {str(e)}")
+        st.error(f"❌ Error en detección: {str(e)}")
         return [], None
 
-def draw_yolo_predictions(image, results):
-    """Dibuja las predicciones de YOLO en la imagen"""
-    try:
-        if results is not None:
-            # Usar el método plot de YOLO que ya incluye bounding boxes
-            annotated_image = results.plot()
-            # Convertir BGR a RGB para Streamlit
-            annotated_image_rgb = cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB)
-            return Image.fromarray(annotated_image_rgb)
-        return image
-    except Exception as e:
-        st.warning(f"No se pudieron dibujar las predicciones: {str(e)}")
-        return image
+def draw_detections(image, detections, confidence_threshold=0.5):
+    """Dibuja las detecciones en la imagen"""
+    img_array = np.array(image)
+    img_draw = img_array.copy()
+    
+    # Colores para diferentes clases
+    colors = {
+        'person': (255, 0, 0),      # Rojo
+        'worker': (255, 0, 0),      # Rojo
+        'helmet': (0, 255, 0),      # Verde
+        'hardhat': (0, 255, 0),     # Verde
+        'hard-hat': (0, 255, 0),    # Verde
+        'safety_vest': (0, 0, 255), # Azul
+        'vest': (0, 0, 255),        # Azul
+        'safety-vest': (0, 0, 255)  # Azul
+    }
+    
+    for det in detections:
+        if det['confidence'] >= confidence_threshold:
+            x1, y1, x2, y2 = det['bbox']
+            class_name = det['class']
+            confidence = det['confidence']
+            
+            color = colors.get(class_name, (255, 255, 0))
+            
+            # Dibujar rectángulo
+            cv2.rectangle(img_draw, (x1, y1), (x2, y2), color, 3)
+            
+            # Preparar texto
+            label = f"{class_name}: {confidence:.2f}"
+            
+            # Fondo para el texto
+            (text_width, text_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+            cv2.rectangle(img_draw, (x1, y1 - text_height - 10), (x1 + text_width, y1), color, -1)
+            
+            # Texto
+            cv2.putText(img_draw, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+    
+    return Image.fromarray(img_draw)
 
 # =============================================
 # INICIALIZACIÓN
 # =============================================
-model = load_yolo_model()
+if 'analysis_history' not in st.session_state:
+    st.session_state.analysis_history = []
+
 expert_system = SafetyExpertSystem()
 
 # =============================================
-# INTERFAZ PRINCIPAL
+# SIDEBAR
 # =============================================
-st.markdown('<h1 class="main-header">🦺 SafeBuild con YOLO Real</h1>', unsafe_allow_html=True)
-st.markdown("### Sistema Inteligente de Detección de Seguridad en Obras")
-
-# Sidebar
-st.sidebar.markdown("### ⚙️ Configuración YOLO")
+st.sidebar.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+st.sidebar.header("⚙️ Configuración del Detector")
 confidence_threshold = st.sidebar.slider(
-    "Umbral de Confianza", 
-    0.1, 0.9, 0.5, 0.05,
-    help="Ajusta la sensibilidad de las detecciones"
+    "Confianza Mínima de Detección", 
+    min_value=0.1, 
+    max_value=0.95, 
+    value=0.5, 
+    step=0.05,
+    help="Umbral mínimo de confianza para considerar una detección válida"
 )
 
-st.sidebar.markdown("### 🧠 Información del Modelo")
-st.sidebar.markdown('<span class="yolo-badge">YOLOv8 Nano</span>', unsafe_allow_html=True)
-st.sidebar.markdown('<span class="yolo-badge">80 Clases COCO</span>', unsafe_allow_html=True)
-st.sidebar.markdown('<span class="yolo-badge">Detección en Tiempo Real</span>', unsafe_allow_html=True)
+show_boxes = st.sidebar.checkbox("Mostrar Bounding Boxes", True)
+show_labels = st.sidebar.checkbox("Mostrar Etiquetas", True)
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
-# Pestañas principales
-tab1, tab2, tab3 = st.tabs(["📸 Analizar Imagen", "🎯 Demo Rápida", "ℹ️ Acerca de YOLO"])
+st.sidebar.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+st.sidebar.header("📊 Información del Modelo")
+model = load_yolo_model()
+if model:
+    st.sidebar.success("🤖 Modelo YOLO cargado")
+    st.sidebar.info(f"📦 Clases detectables: {len(model.names)}")
+else:
+    st.sidebar.error("❌ Modelo no disponible")
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
-with tab1:
-    st.subheader("Sube una imagen para análisis con YOLO")
+# =============================================
+# HEADER PRINCIPAL
+# =============================================
+st.markdown('<h1 class="main-header">🦺 SafeBuild AI</h1>', unsafe_allow_html=True)
+st.markdown("### Sistema Inteligente de Detección de EPP con YOLO")
+st.markdown("---")
+
+# =============================================
+# CONTENIDO PRINCIPAL
+# =============================================
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.subheader("📸 Análisis de Imagen con IA")
     
+    st.markdown("""
+    <div class="info-box">
+        <strong>🎯 ¿Cómo funciona?</strong><br>
+        1. Sube una imagen de tu obra de construcción<br>
+        2. El sistema YOLO detectará automáticamente personas y EPP<br>
+        3. El sistema experto evaluará el cumplimiento de seguridad<br>
+        4. Recibirás alertas y recomendaciones en tiempo real
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Widget para subir imagen
     uploaded_file = st.file_uploader(
-        "Selecciona una imagen de obra de construcción:",
-        type=['jpg', 'jpeg', 'png'],
-        help="YOLO detectará personas, vehículos, equipos y más"
+        "📁 Selecciona una imagen de la obra:",
+        type=['jpg', 'jpeg', 'png', 'bmp'],
+        help="Formatos soportados: JPG, JPEG, PNG, BMP (máx 200MB)"
     )
     
     if uploaded_file is not None:
-        # Mostrar imagen original
+        # Mostrar información de la imagen
+        file_size_mb = uploaded_file.size / (1024 * 1024)
+        st.success(f"✅ **Imagen cargada:** {uploaded_file.name} ({file_size_mb:.2f} MB)")
+        
+        # Cargar imagen
         image = Image.open(uploaded_file)
-        col1, col2 = st.columns(2)
+        original_size = image.size
         
-        with col1:
-            st.image(image, caption="📷 Imagen Original", use_column_width=True)
+        # Mostrar imagen original
+        col_img1, col_img2 = st.columns(2)
         
-        with col2:
-            if st.button("🧠 EJECUTAR YOLO", type="primary", use_container_width=True):
-                if model is None:
-                    st.error("❌ YOLO no está disponible. Revisa los logs de error.")
+        with col_img1:
+            st.markdown("**📷 Imagen Original**")
+            st.image(image, use_container_width=True)
+        
+        # Botón para analizar
+        if st.button("🔍 Analizar Seguridad con YOLO", use_container_width=True):
+            if model is None:
+                st.error("❌ No se pudo cargar el modelo YOLO. Por favor, recarga la página.")
+            else:
+                with st.spinner("🤖 Analizando imagen con YOLO..."):
+                    # Barra de progreso
+                    progress_bar = st.progress(0)
+                    for i in range(30):
+                        time.sleep(0.01)
+                        progress_bar.progress(i + 1)
+                    
+                    # Detectar objetos
+                    detections, yolo_results = detect_objects(image, model, confidence_threshold)
+                    
+                    progress_bar.progress(60)
+                    
+                    # Analizar con sistema experto
+                    analysis = expert_system.analyze_detections(detections, confidence_threshold)
+                    
+                    progress_bar.progress(100)
+                    time.sleep(0.2)
+                    progress_bar.empty()
+                
+                st.success("✅ Análisis completado")
+                
+                # Dibujar detecciones si está habilitado
+                if show_boxes and detections:
+                    annotated_image = draw_detections(image, detections, confidence_threshold)
+                    with col_img2:
+                        st.markdown("**🎯 Detecciones YOLO**")
+                        st.image(annotated_image, use_container_width=True)
+                
+                # Guardar en historial
+                st.session_state.analysis_history.append({
+                    'timestamp': datetime.now(),
+                    'filename': uploaded_file.name,
+                    'detections': len(detections),
+                    'alert_level': analysis['alert_level'],
+                    'statistics': analysis['statistics']
+                })
+                
+                # Mostrar información de detecciones
+                st.markdown("---")
+                st.subheader("🔍 Detecciones Realizadas")
+                
+                if detections:
+                    col_det1, col_det2, col_det3, col_det4 = st.columns(4)
+                    with col_det1:
+                        st.metric("📦 Total Detecciones", len(detections))
+                    with col_det2:
+                        st.metric("👥 Personas", analysis['statistics']['persons'])
+                    with col_det3:
+                        st.metric("🪖 Cascos", analysis['statistics']['helmets'])
+                    with col_det4:
+                        st.metric("🦺 Chalecos", analysis['statistics']['vests'])
+                    
+                    # Tabla de detecciones
+                    with st.expander("📋 Ver detalle de todas las detecciones"):
+                        for i, det in enumerate(detections, 1):
+                            if det['confidence'] >= confidence_threshold:
+                                st.markdown(f"""
+                                <div class="detection-box">
+                                    <strong>Detección #{i}</strong><br>
+                                    🏷️ Clase: {det['class']}<br>
+                                    📊 Confianza: {det['confidence']:.2%}<br>
+                                    📍 Ubicación: {det['bbox']}
+                                </div>
+                                """, unsafe_allow_html=True)
                 else:
-                    with st.spinner("🔍 YOLO analizando imagen..."):
-                        # Barra de progreso
-                        progress_bar = st.progress(0)
-                        status_text = st.empty()
-                        
-                        # Simular etapas de procesamiento
-                        stages = [
-                            "Cargando modelo YOLO...",
-                            "Extrayendo características...", 
-                            "Ejecutando detección...",
-                            "Procesando resultados..."
-                        ]
-                        
-                        for i, stage in enumerate(stages):
-                            progress_bar.progress((i + 1) * 25)
-                            status_text.text(f"⏳ {stage}")
-                            time.sleep(0.5)
-                        
-                        # Procesar con YOLO
-                        detections, yolo_results = process_image_with_yolo(
-                            model, image, confidence_threshold
-                        )
-                        
-                        progress_bar.progress(100)
-                        status_text.text("✅ Análisis completado!")
-                    
-                    # Mostrar resultados
-                    if yolo_results is not None:
-                        annotated_image = draw_yolo_predictions(image, yolo_results)
-                        st.image(annotated_image, 
-                               caption=f"🎯 Detecciones YOLO ({len(detections)} objetos)", 
-                               use_column_width=True)
-                    
-                    # Análisis de seguridad
-                    analysis = expert_system.analyze_detections(detections)
-                    stats = analysis['statistics']
-                    
-                    # Mostrar métricas
-                    st.subheader("📊 Métricas de Detección")
-                    col_met1, col_met2, col_met3, col_met4 = st.columns(4)
-                    
-                    with col_met1:
-                        st.metric("Personas", stats['persons'])
-                    with col_met2:
-                        st.metric("Cascos/EPP", stats['hardhats'])
-                    with col_met3:
-                        st.metric("Maquinaria", stats['heavy_equipment'])
-                    with col_met4:
-                        st.metric("Total Objetos", stats['total_detections'])
-                    
-                    # Mostrar alerta de seguridad
-                    st.subheader("🚨 Análisis de Seguridad")
-                    alert_level = analysis['alert_level']
-                    
-                    if alert_level == "ALTA":
-                        st.markdown(f"""
-                        <div class="alert-high">
-                            <h3>🚨 {analysis['alert_message']}</h3>
-                            <p><strong>📋 Acción Recomendada:</strong> {analysis['recommended_action']}</p>
-                            <p><strong>🔍 Detectado por:</strong> YOLOv8 + Sistema Experto</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    elif alert_level == "MEDIA":
-                        st.markdown(f"""
-                        <div class="alert-medium">
-                            <h3>⚠️ {analysis['alert_message']}</h3>
-                            <p><strong>📋 Acción Recomendada:</strong> {analysis['recommended_action']}</p>
-                            <p><strong>🔍 Detectado por:</strong> YOLOv8 + Sistema Experto</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.markdown(f"""
-                        <div class="alert-ok">
-                            <h3>✅ {analysis['alert_message']}</h3>
-                            <p><strong>📋 Acción Recomendada:</strong> {analysis['recommended_action']}</p>
-                            <p><strong>🔍 Detectado por:</strong> YOLOv8 + Sistema Experto</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    
-                    # Detalles de detecciones
-                    with st.expander("🔍 Ver detalles de todas las detecciones"):
-                        if detections:
-                            for i, det in enumerate(detections):
-                                st.write(f"**{i+1}. {det['class_name'].upper()}** - Confianza: {det['confidence']:.2f}")
-                        else:
-                            st.info("No se encontraron detecciones por encima del umbral de confianza")
-
-with tab2:
-    st.subheader("🎯 Demo Rápida con YOLO")
-    st.info("Prueba el sistema con esta funcionalidad de demo")
-    
-    demo_option = st.selectbox(
-        "Selecciona un escenario de demo:",
-        ["🏗️ Obra con múltiples trabajadores", "🚧 Área con maquinaria", "👷 Trabajador individual"]
-    )
-    
-    if st.button("🚀 EJECUTAR DEMO YOLO", type="secondary"):
-        if model is None:
-            st.error("YOLO no disponible para la demo")
-        else:
-            # Crear imagen de demo simple
-            demo_image = create_demo_image(demo_option)
-            
-            with st.spinner("Ejecutando demo con YOLO..."):
-                detections, yolo_results = process_image_with_yolo(
-                    model, demo_image, confidence_threshold
-                )
+                    st.info("ℹ️ No se detectaron objetos con la confianza mínima establecida")
                 
-                col_demo1, col_demo2 = st.columns(2)
+                # Mostrar análisis del sistema experto
+                st.markdown("---")
+                st.subheader("🧠 Análisis del Sistema Experto")
                 
-                with col_demo1:
-                    st.image(demo_image, caption="Escenario de Demo", use_column_width=True)
+                alert_level = analysis['alert_level']
                 
-                with col_demo2:
-                    if yolo_results is not None:
-                        annotated_image = draw_yolo_predictions(demo_image, yolo_results)
-                        st.image(annotated_image, caption="Detecciones YOLO", use_column_width=True)
-                
-                # Análisis rápido
-                analysis = expert_system.analyze_detections(detections)
-                st.success(f"Demo completada: {analysis['alert_message']}")
-
-with tab3:
-    st.subheader("🧠 Acerca de YOLO (You Only Look Once)")
+                if alert_level == "ALTA":
+                    st.markdown(f"""
+                    <div class="alert-high">
+                        <h3>🚨 ALERTA CRÍTICA DE SEGURIDAD</h3>
+                        <p style="font-size: 1.1rem;"><strong>{analysis['alert_message']}</strong></p>
+                        <hr style="margin: 1rem 0; border-color: #DC2626;">
+                        <p>📋 <strong>Acción Recomendada:</strong><br>{analysis['recommended_action']}</p>
+                        <p>⏰ <strong>Prioridad:</strong> Resolución Inmediata</p>
+                        <p>📊 <strong>Cumplimiento EPP:</strong> {analysis['compliance_rate']:.1f}%</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                elif alert_level == "MEDIA":
+                    st.markdown(f"""
+                    <div class="alert-medium">
+                        <h3>⚠️ ALERTA DE SEGURIDAD</h3>
+                        <p style="font-size: 1.1rem;"><strong>{analysis['alert_message']}</strong></p>
+                        <hr style="margin: 1rem 0; border-color: #D97706;">
+                        <p>📋 <strong>Acción Recomendada:</strong><br>{analysis['recommended_action']}</p>
+                        <p>⏰ <strong>Prioridad:</strong> Resolución en 1 hora</p>
+                        <p>📊 <strong>Cumplimiento EPP:</strong> {analysis['compliance_rate']:.1f}%</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                else:
+                    st.markdown(f"""
+                    <div class="alert-ok">
+                        <h3>✅ CONDICIONES SEGURAS</h3>
+                        <p style="font-size: 1.1rem;"><strong>{analysis['alert_message']}</strong></p>
+                        <hr style="margin: 1rem 0; border-color: #059669;">
+                        <p>📋 <strong>Acción Recomendada:</strong><br>{analysis['recommended_action']}</p>
+                        <p>⏰ <strong>Estado:</strong> Operaciones Normales</p>
+                        <p>📊 <strong>Cumplimiento EPP:</strong> {analysis['compliance_rate']:.1f}%</p>
+                    </div>
+                    """, unsafe_allow_html=True)
     
-    st.markdown("""
-    ### 🚀 ¿Qué es YOLO?
-    
-    YOLO es un algoritmo de detección de objetos en tiempo real que:
-    
-    - **Velocidad**: Procesa imágenes en milisegundos
-    - **Precisión**: Alta tasa de detección en múltiples clases
-    - **Eficiencia**: Una sola pasada por la red (You Only Look Once)
-    
-    ### 🏗️ Arquitectura YOLOv8
-    
-    **Características técnicas:**
-    - **Backbone**: CSPDarknet (Extracción de características)
-    - **Neck**: PAN-FPN (Fusión de características multi-escala)  
-    - **Head**: Detección con anchor-free
-    - **Entrenamiento**: 80 clases del dataset COCO
-    
-    ### 🎯 Clases Relevantes para Seguridad en Obras
-    
-    YOLO puede detectar automáticamente:
-    - 👥 **Personas** - Trabajadores en la obra
-    - 🚗 **Vehículos** - Maquinaria y equipos
-    - 🎒 **Objetos** - Equipamiento de obra
-    - 🚧 **Señales** - Elementos de seguridad
-    
-    ### 🔧 Integración en SafeBuild
-    
-    Este sistema combina:
-    1. **YOLOv8** para detección de objetos en tiempo real
-    2. **Sistema Experto** para análisis de reglas de seguridad
-    3. **Streamlit** para interfaz web interactiva
-    """)
-
-# =============================================
-# FUNCIONES AUXILIARES
-# =============================================
-def create_demo_image(scenario):
-    """Crea una imagen de demo simple"""
-    width, height = 640, 480
-    image = np.ones((height, width, 3), dtype=np.uint8) * 200
-    
-    # Dibujar según escenario
-    if "múltiples" in scenario:
-        # Personas
-        cv2.rectangle(image, (100, 300), (150, 450), (0, 255, 0), -1)
-        cv2.rectangle(image, (300, 280), (350, 430), (0, 255, 0), -1)
-        cv2.putText(image, "DEMO: OBRA ACTIVA", (50, 50), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-    elif "maquinaria" in scenario:
-        # Vehículo
-        cv2.rectangle(image, (200, 200), (400, 300), (255, 0, 0), -1)
-        cv2.rectangle(image, (150, 320), (180, 450), (0, 255, 0), -1)
-        cv2.putText(image, "DEMO: MAQUINARIA", (50, 50), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
     else:
-        # Persona individual
-        cv2.rectangle(image, (300, 250), (350, 400), (0, 255, 0), -1)
-        cv2.putText(image, "DEMO: TRABAJADOR", (50, 50), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        st.info("👆 **Sube una imagen para comenzar el análisis de seguridad**")
+        st.markdown("""
+        **📸 Recomendaciones para mejores resultados:**
+        - Usa imágenes con buena iluminación
+        - Asegúrate que los trabajadores sean visibles
+        - Evita imágenes muy borrosas o de baja calidad
+        - El modelo detecta: personas, cascos y chalecos reflectantes
+        """)
+
+with col2:
+    st.subheader("📊 Panel de Control")
     
-    return Image.fromarray(image)
+    # Mostrar estadísticas actuales
+    if 'analysis' in locals() and analysis:
+        stats = analysis['statistics']
+        compliance = analysis['compliance_rate']
+    else:
+        stats = {'persons': 0, 'helmets': 0, 'vests': 0, 'total_detections': 0}
+        compliance = 0
+    
+    # Métricas principales
+    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+    st.metric("👥 Trabajadores Detectados", stats['persons'])
+    st.metric("🪖 Cascos Detectados", stats['helmets'])
+    st.metric("🦺 Chalecos Detectados", stats['vests'])
+    st.metric("📈 Cumplimiento EPP", f"{compliance:.1f}%")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Estado actual
+    st.subheader("🚦 Estado Actual")
+    if stats['persons'] > 0:
+        if stats['helmets'] < stats['persons']:
+            missing_helmets = stats['persons'] - stats['helmets']
+            st.error(f"❌ {missing_helmets} trabajador(es) sin casco")
+        else:
+            st.success("✅ Todos con casco")
+        
+        if stats['vests'] < stats['persons']:
+            missing_vests = stats['persons'] - stats['vests']
+            st.warning(f"⚠️ {missing_vests} trabajador(es) sin chaleco")
+        else:
+            st.success("✅ Todos con chaleco")
+    else:
+        st.info("👀 No hay trabajadores detectados")
+    
+    # Historial de análisis
+    st.subheader("📋 Historial Reciente")
+    if st.session_state.analysis_history:
+        for i, record in enumerate(reversed(st.session_state.analysis_history[-5:]), 1):
+            status_emoji = "🚨" if record['alert_level'] == "ALTA" else "⚠️" if record['alert_level'] == "MEDIA" else "✅"
+            st.markdown(f"""
+            <div class="detection-box">
+                {status_emoji} <strong>Análisis #{len(st.session_state.analysis_history) - i + 1}</strong><br>
+                📸 {record['filename'][:20]}...<br>
+                🕐 {record['timestamp'].strftime('%H:%M:%S')}<br>
+                👥 {record['statistics']['persons']} personas
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("📝 Aún no hay análisis realizados")
+    
+    # Botón para limpiar historial
+    if st.session_state.analysis_history:
+        if st.button("🗑️ Limpiar Historial"):
+            st.session_state.analysis_history = []
+            st.rerun()
 
 # =============================================
-# FOOTER
+# ESTADÍSTICAS GLOBALES
 # =============================================
 st.markdown("---")
+st.subheader("📈 Estadísticas de la Sesión")
+
+col3, col4, col5, col6 = st.columns(4)
+
+total_analyses = len(st.session_state.analysis_history)
+total_alerts = sum(1 for r in st.session_state.analysis_history if r['alert_level'] in ['ALTA', 'MEDIA'])
+avg_compliance = np.mean([r['statistics']['persons'] for r in st.session_state.analysis_history]) if st.session_state.analysis_history else 0
+
+with col3:
+    st.metric("🔍 Análisis Realizados", total_analyses)
+with col4:
+    st.metric("🚨 Alertas Generadas", total_alerts)
+with col5:
+    st.metric("👥 Promedio Trabajadores", f"{avg_compliance:.1f}")
+with col6:
+    st.metric("🤖 Modelo Activo", "YOLO v8" if model else "N/A")
+
+# =============================================
+# FOOTER E INFORMACIÓN
+# =============================================
+st.markdown("---")
+st.sidebar.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+st.sidebar.subheader("ℹ️ Acerca de SafeBuild AI")
+st.sidebar.info("""
+**SafeBuild AI v2.0**  
+
+🤖 **Tecnología:**  
+• YOLOv8 para detección de objetos
+• Sistema Experto basado en reglas
+• Análisis en tiempo real
+
+🎯 **Detecta:**  
+• Trabajadores (personas)
+• Cascos de seguridad
+• Chalecos reflectantes
+
+📊 **Características:**  
+• Análisis automático de cumplimiento
+• Alertas por niveles de riesgo
+• Historial de análisis
+• Métricas en tiempo real
+
+🎓 **Desarrollo:**  
+Trabajo Práctico Integrador  
+Sistemas de Inteligencia Artificial
+""")
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
+
 st.markdown("""
-<div style="text-align: center; color: #666;">
-    <p><strong>SafeBuild Pro v3.0</strong> - YOLOv8 + Streamlit | Trabajo Práctico Integrador IA</p>
-    <p style="font-size: 0.8rem;">🧠 Powered by Ultralytics YOLO | 🎯 Detección en Tiempo Real | 🚀 Streamlit Cloud</p>
+<div style="text-align: center; color: #666; padding: 2rem;">
+    <p><strong>SafeBuild AI v2.0</strong> - Sistema de Detección de EPP con YOLO</p>
+    <p>🤖 Powered by YOLOv8 + Sistema Experto 🤖</p>
+    <p style="font-size: 0.9rem;">Desarrollado como TP Integrador - IA</p>
 </div>
 """, unsafe_allow_html=True)
