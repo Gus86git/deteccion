@@ -8,6 +8,8 @@ import time
 from ultralytics import YOLO
 import tempfile
 import os
+import pandas as pd
+from automation import automation_system
 
 # =============================================
 # CONFIGURACIÓN DE LA PÁGINA
@@ -727,6 +729,55 @@ if model:
     st.sidebar.info(f"📦 Clases detectables: {len(model.names)}")
 else:
     st.sidebar.error("❌ Modelo no disponible")
+
+st.sidebar.markdown("---")
+st.sidebar.header("📧 Sistema de Reportes")
+
+# Botón para generar CSV
+if st.sidebar.button("📊 Generar Reporte CSV", use_container_width=True):
+    if automation_system.alert_history:
+        csv_data = automation_system.generate_csv_report()
+        if csv_data:
+            st.sidebar.download_button(
+                label="⬇️ Descargar CSV",
+                data=csv_data,
+                file_name=f"safebuild_report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        else:
+            st.sidebar.error("No hay datos para generar reporte")
+    else:
+        st.sidebar.warning("No hay análisis en el historial")
+
+# Botón para enviar por email
+st.sidebar.markdown("### 📨 Enviar Reporte por Email")
+email_address = st.sidebar.text_input(
+    "Email destino:",
+    placeholder="ejemplo@empresa.com",
+    help="Ingresa el email donde enviar el reporte"
+)
+
+if st.sidebar.button("🚀 Enviar Reporte por Email", use_container_width=True):
+    if email_address and automation_system.alert_history:
+        success, message = automation_system.send_email_report(email_address)
+        if success:
+            st.sidebar.success(message)
+        else:
+            st.sidebar.error(message)
+    else:
+        if not email_address:
+            st.sidebar.error("Por favor ingresa un email válido")
+        else:
+            st.sidebar.warning("No hay datos para enviar")
+
+# Mostrar estadísticas rápidas
+if automation_system.alert_history:
+    st.sidebar.markdown("---")
+    st.sidebar.info(f"**📈 Estadísticas:**\n"
+                   f"• {len(automation_system.alert_history)} análisis en historial\n"
+                   f"• {len([a for a in automation_system.alert_history if a['alert_level'] in ['ALTA', 'MEDIA']])} alertas generadas")
+
 st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
 # =============================================
@@ -824,6 +875,9 @@ with col1:
                     'statistics': analysis['statistics'],
                     'rule_triggered': analysis.get('rule_triggered', 'default')
                 })
+                
+                # Agregar al sistema de automatización para reportes
+                automation_system.add_alert_to_history(analysis, uploaded_file.name, datetime.now())
                 
                 # Mostrar información de detecciones
                 st.markdown("---")
