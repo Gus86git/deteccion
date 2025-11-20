@@ -6,7 +6,8 @@ from email.mime.base import MimeBase
 from email import encoders
 import csv
 import io
-from datetime import datetime, timedelta
+from datetime import datetime
+import numpy as np
 import streamlit as st
 
 class SafeBuildAutomation:
@@ -55,10 +56,18 @@ class SafeBuildAutomation:
         
         df = pd.DataFrame(self.alert_history)
         
+        # Calcular promedios de manera segura
+        avg_persons = df['persons'].mean() if not df.empty else 0
+        avg_helmets = df['helmets'].mean() if not df.empty else 0
+        avg_vests = df['vests'].mean() if not df.empty else 0
+        avg_full_ppe = df['full_ppe'].mean() if not df.empty else 0
+        avg_height_risk = df['persons_high_risk'].mean() if not df.empty else 0
+        avg_compliance = df['compliance_rate'].mean() if not df.empty else 0
+        
         report = f"""
 📊 REPORTE DETALLADO SAFEBUILD
 Generado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Período: {df['timestamp'].min()} a {df['timestamp'].max()}
+Período: {df['timestamp'].min() if not df.empty else 'N/A'} a {df['timestamp'].max() if not df.empty else 'N/A'}
 ========================================
 
 ESTADÍSTICAS GENERALES:
@@ -67,7 +76,7 @@ ESTADÍSTICAS GENERALES:
 • Alertas MEDIAS: {len(df[df['alert_level'] == 'MEDIA'])}
 • Alertas OK: {len(df[df['alert_level'] == 'OK'])}
 
-CUMPLIMIENTO PROMEDIO: {df['compliance_rate'].mean():.1f}%
+CUMPLIMIENTO PROMEDIO: {avg_compliance:.1f}%
 
 DISTRIBUCIÓN DE REGLAS ACTIVADAS:
 """
@@ -79,11 +88,11 @@ DISTRIBUCIÓN DE REGLAS ACTIVADAS:
         
         report += f"""
 ESTADÍSTICAS DE DETECCIÓN:
-• Personas detectadas (promedio): {df['persons'].mean():.1f}
-• Cascos detectados (promedio): {df['helmets'].mean():.1f} 
-• Chalecos detectados (promedio): {df['vests'].mean():.1f}
-• EPP completo (promedio): {df['full_ppe'].mean():.1f}
-• Personas en zona de altura (promedio): {df['persons_high_risk'].mean():.1f}
+• Personas detectadas (promedio): {avg_persons:.1f}
+• Cascos detectados (promedio): {avg_helmets:.1f} 
+• Chalecos detectados (promedio): {avg_vests:.1f}
+• EPP completo (promedio): {avg_full_ppe:.1f}
+• Personas en zona de altura (promedio): {avg_height_risk:.1f}
 
 ÚLTIMAS 5 ALERTAS:
 """
@@ -146,10 +155,14 @@ Generado automáticamente
             # server.send_message(msg)
             # server.quit()
             
-            return True, f"✅ Reporte enviado a {recipient_email}"
+            # Por ahora solo simulamos el envío
+            print(f"📧 Simulando envío a: {recipient_email}")
+            print(f"📊 Reporte generado: {len(self.alert_history)} análisis")
+            
+            return True, f"✅ Reporte preparado para {recipient_email} (simulación)"
             
         except Exception as e:
-            return False, f"❌ Error enviando email: {str(e)}"
+            return False, f"❌ Error en sistema de email: {str(e)}"
 
 # Instancia global
 automation_system = SafeBuildAutomation()
