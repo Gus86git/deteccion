@@ -1,10 +1,4 @@
 import pandas as pd
-import smtplib
-from email.mime.text import MimeText
-from email.mime.multipart import MimeMultipart
-from email.mime.base import MimeBase
-from email import encoders
-import csv
 import io
 from datetime import datetime
 import numpy as np
@@ -110,30 +104,46 @@ ESTADÍSTICAS DE DETECCIÓN:
         return report
     
     def send_email_report(self, recipient_email, subject="Reporte SafeBuild"):
-        """Envía reporte por email"""
+        """Simula envío de email y ofrece descarga directa"""
         try:
-            # CONFIGURACIÓN CON TUS DATOS
-            smtp_server = "smtp.gmail.com"
-            port = 587
-            sender_email = "obras.informes33@gmail.com"
-            password = "kkfw hxfx vdzh bify"
-            
-            # Crear mensaje
-            msg = MimeMultipart()
-            msg['Subject'] = f"{subject} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-            msg['From'] = sender_email
-            msg['To'] = recipient_email
-            
-            # Cuerpo del email
+            # Generar reportes
             report_text = self.generate_detailed_report()
-            body = f"""
-Hola,
+            csv_data = self.generate_csv_report()
+            
+            if not csv_data:
+                return False, "❌ No hay datos para generar reporte"
+            
+            # Mostrar el reporte en la app
+            st.success("📊 **Reporte Generado Exitosamente**")
+            
+            # Mostrar resumen
+            with st.expander("📋 Ver Resumen del Reporte", expanded=True):
+                st.text(report_text)
+            
+            # Ofrecer descarga de CSV
+            st.download_button(
+                label="⬇️ Descargar Reporte CSV Completo",
+                data=csv_data,
+                file_name=f"safebuild_report_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+            
+            # Información sobre email
+            st.info("""
+            **📨 Para recibir el reporte por email:**
+            1. Descarga el CSV arriba
+            2. Envíalo manualmente a: **obras.informes33@gmail.com**
+            3. O copia y pega el resumen del reporte en tu email
+            """)
+            
+            return True, f"✅ Reporte generado exitosamente. Listo para descargar."
+            
+        except Exception as e:
+            return False, f"❌ Error generando reporte: {str(e)}"
 
-Adjunto encontrarás el reporte automático de SafeBuild AI.
-
-{report_text}
-
---
+# Instancia global
+automation_system = SafeBuildAutomation()
 SafeBuild AI - Sistema de Monitoreo de Seguridad
 Generado automáticamente
 """
